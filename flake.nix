@@ -3,23 +3,25 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    
+    nixpkgs-stable.url = "github:NixOS/nixpkgs/nixos-24.11";
     darling-nix = {
       url = "github:nixie-dev/darling-nix";
-      inputs.nixpkgs.follows = "nixpkgs";
+      flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, darling-nix, ... }@inputs:
+  outputs = { self, nixpkgs, nixpkgs-stable, darling-nix, ... }@inputs:
     let
       system = "x86_64-linux";
-      pkgs = import nixpkgs {
-        inherit system;
-      };
-      
-      darling-pkg = darling-nix.packages.${system}.darling;
 
+      pkgs = import nixpkgs { inherit system; };
+      stablePkgs = import nixpkgs-stable { inherit system; };
+
+      darling-pkg = stablePkgs.callPackage "${darling-nix}/packages/darling" { };
       pythonEnv = pkgs.python3.withPackages (ps: [ ps.pygobject3 ]);
+      
+      clang-pkg = stablePkgs.clang_18;
+      lld-pkg = stablePkgs.lld_18;
     in
     {
       packages.${system}.default = pkgs.stdenv.mkDerivation {
@@ -42,8 +44,6 @@
 
         buildInputs = with pkgs; [
           darling-pkg
-          clang
-          lld
           unzip
           pipewire
           gtk4
@@ -101,7 +101,7 @@
 
         postFixup = ''
           wrapProgram "$out/bin/macoblox" \
-            --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.clang pkgs.lld pkgs.unzip darling-pkg ]} \
+            --prefix PATH : ${pkgs.lib.makeBinPath [ clang-pkg lld-pkg pkgs.unzip darling-pkg ]} \
             --prefix PYTHONPATH : "$out/share/macoblox/launcher" \
             --prefix GI_TYPELIB_PATH : ${pkgs.lib.makeSearchPathOutput "lib" "lib/girepository-1.0" [
               pkgs.gobject-introspection pkgs.gdk-pixbuf pkgs.graphene pkgs.harfbuzz
