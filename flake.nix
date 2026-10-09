@@ -3,22 +3,22 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    darling-nix.url = "github:nixie-dev/darling-nix";
+    
+    darling-nix = {
+      url = "github:nixie-dev/darling-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  # Added darling-nix to the outputs arguments
   outputs = { self, nixpkgs, darling-nix, ... }@inputs:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
-        # Removed the broken overlay import. We fetch darling directly from the flake's packages instead.
       };
       
-      # Fetch the darling package directly from the darling-nix flake outputs
       darling-pkg = darling-nix.packages.${system}.darling;
 
-      # Python environment with pygobject3 (the 'gi' module) guaranteed to be available
       pythonEnv = pkgs.python3.withPackages (ps: [ ps.pygobject3 ]);
     in
     {
@@ -41,7 +41,7 @@
         ];
 
         buildInputs = with pkgs; [
-          darling-pkg # <-- Correctly referenced darling package from darling-nix
+          darling-pkg
           clang
           lld
           unzip
@@ -50,7 +50,6 @@
           libadwaita
           webkitgtk_6_0
           gsettings-desktop-schemas
-          # Full dependency chain for GTK4 typelib:
           gdk-pixbuf
           graphene
           harfbuzz
@@ -67,48 +66,40 @@
           cp -r --no-preserve=ownership launcher branding frameworks build_debug_shim.sh ./*.c ./*.m "$share/"
           rm -f "$share/launcher/install.sh"
           
-          # Compile Python launcher files
           ${pythonEnv}/bin/python -m compileall -q -d /share/macoblox/launcher "$share/launcher"
 
           mkdir -p "$out/bin"
           cp "$share/launcher/macoblox-launcher" "$out/bin/macoblox"
           patchShebangs "$out/bin/macoblox"
 
-          # Install icons
           for size in 16 22 24 32 48 64 128 256 512; do
             mkdir -p "$out/share/icons/hicolor/''${size}x''${size}/apps"
             cp "branding/icons/macoblox-$size.png" \
               "$out/share/icons/hicolor/''${size}x''${size}/apps/macoblox.png"
           done
 
-          # Install Desktop files
           mkdir -p "$out/share/applications"
           cp packaging/wtf.aubree.MacOBlox.desktop "$out/share/applications/"
           cp packaging/wtf.aubree.MacOBlox.URI.desktop "$out/share/applications/"
           cp packaging/macoblox-roblox-window.desktop "$out/share/applications/"
           cp packaging/wtf.aubree.MacOBlox.Studio.desktop "$out/share/applications/"
           
-          # Install MIME types
           mkdir -p "$out/share/mime/packages"
           cp packaging/wtf.aubree.MacOBlox.xml "$out/share/mime/packages/"
 
-          # Install license
           mkdir -p "$out/share/licenses/macoblox-git"
           cp LICENSE "$out/share/licenses/macoblox-git/"
 
           runHook postInstall
         '';
 
-        # Ensure the application is easily discoverable in the application menu search
         postInstall = ''
           substituteInPlace "$out/share/applications/wtf.aubree.MacOBlox.desktop" \
             --replace-fail "Name=Mac O’ Blox" "Name=MacOBlox (Mac O' Blox)" \
             --replace-fail "Keywords=roblox;darling;" "Keywords=macoblox;roblox;darling;game;"
         '';
 
-        # Wrap the program strictly after all files are installed
         postFixup = ''
-          # Explicitly and transparently set ALL necessary environment variables
           wrapProgram "$out/bin/macoblox" \
             --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.clang pkgs.lld pkgs.unzip darling-pkg ]} \
             --prefix PYTHONPATH : "$out/share/macoblox/launcher" \
