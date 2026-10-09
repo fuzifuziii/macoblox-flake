@@ -6,14 +6,18 @@
     darling-nix.url = "github:nixie-dev/darling-nix";
   };
 
-  outputs = { self, nixpkgs, ... }@inputs:
+  # Added darling-nix to the outputs arguments
+  outputs = { self, nixpkgs, darling-nix, ... }@inputs:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
-        overlays = [ inputs.darling-nix.overlays.default ];
+        # Removed the broken overlay import. We fetch darling directly from the flake's packages instead.
       };
       
+      # Fetch the darling package directly from the darling-nix flake outputs
+      darling-pkg = darling-nix.packages.${system}.darling;
+
       # Python environment with pygobject3 (the 'gi' module) guaranteed to be available
       pythonEnv = pkgs.python3.withPackages (ps: [ ps.pygobject3 ]);
     in
@@ -37,7 +41,7 @@
         ];
 
         buildInputs = with pkgs; [
-          darling
+          darling-pkg # <-- Correctly referenced darling package from darling-nix
           clang
           lld
           unzip
@@ -106,7 +110,7 @@
         postFixup = ''
           # Explicitly and transparently set ALL necessary environment variables
           wrapProgram "$out/bin/macoblox" \
-            --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.clang pkgs.lld pkgs.unzip ]} \
+            --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.clang pkgs.lld pkgs.unzip darling-pkg ]} \
             --prefix PYTHONPATH : "$out/share/macoblox/launcher" \
             --prefix GI_TYPELIB_PATH : ${pkgs.lib.makeSearchPathOutput "lib" "lib/girepository-1.0" [
               pkgs.gobject-introspection pkgs.gdk-pixbuf pkgs.graphene pkgs.harfbuzz
@@ -140,8 +144,4 @@
           };
 
           config = mkIf cfg.enable {
-            environment.systemPackages = [ cfg.package ];
-          };
-        };
-    };
-}
+           
