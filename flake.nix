@@ -1,9 +1,9 @@
 {
-  description = "MacOBlox git - Запуск macOS-клиента Roblox на Linux через Darling";
+  description = "MacOBlox git - Run the macOS Roblox client on Linux through Darling";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    # darling-nix.url = "github:nixie-dev/darling-nix"; # Раскомментируйте при использовании оверлея
+    darling-nix.url = "github:nixie-dev/darling-nix";
   };
 
   outputs = { self, nixpkgs, ... }@inputs:
@@ -11,10 +11,10 @@
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
-        # overlays = [ inputs.darling-nix.overlays.default ];
+        overlays = [ inputs.darling-nix.overlays.default ];
       };
       
-      # Окружение Python с гарантированно установленным pygobject3 (модуль 'gi')
+      # Python environment with pygobject3 (the 'gi' module) guaranteed to be available
       pythonEnv = pkgs.python3.withPackages (ps: [ ps.pygobject3 ]);
     in
     {
@@ -31,13 +31,13 @@
 
         nativeBuildInputs = with pkgs; [
           git
-          makeWrapper       # Для ручного контроля над wrapProgram
+          makeWrapper
           pythonEnv
           gobject-introspection
         ];
 
         buildInputs = with pkgs; [
-          # darling # Раскомментируйте, когда добавите оверлей для darling
+          darling
           clang
           lld
           unzip
@@ -46,8 +46,8 @@
           libadwaita
           webkitgtk_6_0
           gsettings-desktop-schemas
-          # Полная цепочка зависимостей для typelib GTK4:
-          gdk-pixbuf        # <-- Критически важно: предоставляет GdkPixbuf-2.0
+          # Full dependency chain for GTK4 typelib:
+          gdk-pixbuf
           graphene
           harfbuzz
           pango
@@ -63,49 +63,62 @@
           cp -r --no-preserve=ownership launcher branding frameworks build_debug_shim.sh ./*.c ./*.m "$share/"
           rm -f "$share/launcher/install.sh"
           
-          # Компиляция Python-файлов лаунчера
+          # Compile Python launcher files
           ${pythonEnv}/bin/python -m compileall -q -d /share/macoblox/launcher "$share/launcher"
 
           mkdir -p "$out/bin"
           cp "$share/launcher/macoblox-launcher" "$out/bin/macoblox"
+          patchShebangs "$out/bin/macoblox"
+
+          # Install icons
+          for size in 16 22 24 32 48 64 128 256 512; do
+            mkdir -p "$out/share/icons/hicolor/''${size}x''${size}/apps"
+            cp "branding/icons/macoblox-$size.png" \
+              "$out/share/icons/hicolor/''${size}x''${size}/apps/macoblox.png"
+          done
+
+          # Install Desktop files
+          mkdir -p "$out/share/applications"
+          cp packaging/wtf.aubree.MacOBlox.desktop "$out/share/applications/"
+          cp packaging/wtf.aubree.MacOBlox.URI.desktop "$out/share/applications/"
+          cp packaging/macoblox-roblox-window.desktop "$out/share/applications/"
+          cp packaging/wtf.aubree.MacOBlox.Studio.desktop "$out/share/applications/"
+          
+          # Install MIME types
+          mkdir -p "$out/share/mime/packages"
+          cp packaging/wtf.aubree.MacOBlox.xml "$out/share/mime/packages/"
+
+          # Install license
+          mkdir -p "$out/share/licenses/macoblox-git"
+          cp LICENSE "$out/share/licenses/macoblox-git/"
 
           runHook postInstall
         '';
 
-        # Выполняем обертку строго после установки всех файлов
+        # Ensure the application is easily discoverable in the application menu search
+        postInstall = ''
+          substituteInPlace "$out/share/applications/wtf.aubree.MacOBlox.desktop" \
+            --replace-fail "Name=Mac O’ Blox" "Name=MacOBlox (Mac O' Blox)" \
+            --replace-fail "Keywords=roblox;darling;" "Keywords=macoblox;roblox;darling;game;"
+        '';
+
+        # Wrap the program strictly after all files are installed
         postFixup = ''
-          # 1. Заменяем shebang на наш pythonEnv
-          patchShebangs "$out/bin/macoblox"
-          
-          # 2. Явно и прозрачно задаем ВСЕ необходимые переменные окружения
+          # Explicitly and transparently set ALL necessary environment variables
           wrapProgram "$out/bin/macoblox" \
-            --prefix PATH : ${pkgs.lib.makeBinPath [
-              pkgs.clang
-              pkgs.lld
-              pkgs.unzip
-            ]} \
+            --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.clang pkgs.lld pkgs.unzip ]} \
             --prefix PYTHONPATH : "$out/share/macoblox/launcher" \
             --prefix GI_TYPELIB_PATH : ${pkgs.lib.makeSearchPathOutput "lib" "lib/girepository-1.0" [
-              pkgs.gobject-introspection
-              pkgs.gdk-pixbuf
-              pkgs.graphene
-              pkgs.harfbuzz
-              pkgs.pango
-              pkgs.cairo
-              pkgs.fribidi
-              pkgs.gtk4
-              pkgs.libadwaita
-              pkgs.webkitgtk_6_0
+              pkgs.gobject-introspection pkgs.gdk-pixbuf pkgs.graphene pkgs.harfbuzz
+              pkgs.pango pkgs.cairo pkgs.fribidi pkgs.gtk4 pkgs.libadwaita pkgs.webkitgtk_6_0
             ]} \
             --prefix XDG_DATA_DIRS : "${pkgs.lib.makeSearchPath "share" [
-              pkgs.gsettings-desktop-schemas
-              pkgs.gtk4
-              pkgs.libadwaita
+              pkgs.gsettings-desktop-schemas pkgs.gtk4 pkgs.libadwaita
             ]}:$out/share"
         '';
 
         meta = with pkgs.lib; {
-          description = "Запуск macOS-клиента Roblox на Linux через Darling";
+          description = "Run the macOS Roblox client on Linux through Darling";
           homepage = "https://github.com/aubree-lat/MacOBlox";
           license = licenses.mit;
           platforms = platforms.linux;
@@ -118,11 +131,11 @@
           cfg = config.programs.macoblox;
         in {
           options.programs.macoblox = {
-            enable = mkEnableOption "MacOBlox (запуск macOS Roblox через Darling)";
+            enable = mkEnableOption "MacOBlox (run macOS Roblox through Darling)";
             package = mkOption {
               type = types.package;
               default = self.packages.${pkgs.system}.default;
-              description = "Пакет MacOBlox для использования.";
+              description = "The MacOBlox package to use.";
             };
           };
 
